@@ -1,0 +1,141 @@
+#! /usr/bin/env bash
+
+
+# coloring, attributes, etc.
+have_tput="$(if which tput &>/dev/null;then printf '%s\n' 'yes';fi)"
+
+t_bold() {
+    if test "${have_tput}" = 'yes';then
+	tput bold
+    else
+	printf '\033[1m'
+    fi
+}
+
+t_setaf() {
+    if test "${have_tput}" = 'yes';then
+	tput setaf "${1}"
+    else
+	printf '\033[%sm' "$((30 + ${1}))"
+    fi
+}
+
+t_sgr0() {
+    if test "${have_tput}" = 'yes';then
+	tput sgr0
+    else
+	printf '\033[0m'
+    fi
+}
+
+bold="$(t_bold)"
+sgr0="$(t_sgr0)"
+
+# sources the "banner"
+banner_path="$(dirname "$(realpath "$0")")/re2l_banner.sh"
+source "${banner_path}"
+
+p_banner() {
+    printf "$(t_setaf 1)%s ${bold}$(t_setaf 0)%s ${sgr0}%s\n" 'Red' 'Eclipse' '2'
+    printf '%s\n' "${RE2L_BANNER}"
+}
+
+run() {
+    cd "${RE2L_DATAPATH}" && exec "${RE2L_BINPATH}"
+}
+
+pull() {
+    cd "$(dirname "${RE2L_BINPATH}")" || return 2
+    x="$(git pull 2>&1 || printf '%s\n' '!fail!')"
+    printf '%s\n' "${x}"
+
+    if printf '%s\n' "${x}" | grep -qi '!fail!';then
+	return 1
+    else
+	return 0
+    fi
+}
+
+_compile() {
+    cd "$(dirname "${RE2L_BINPATH}")" &&
+	if make -j"$(nproc)" all;then
+	    return 0
+	else
+	    return 1
+	fi
+}
+
+# wrapper for _compile as the borked-ass Makefile will sometimes build enet after client lmfao
+compile() {
+    i=0
+    while ! _compile && test "${i}" -le 2;do
+	((i++))
+    done
+    return 0
+}
+
+clean() {
+    cd "$(dirname "${RE2L_BINPATH}")" &&
+	make -j"$(nproc)" clean
+    return 0
+}
+
+gitclean() {
+    cd "$(dirname "${RE2L_BINPATH}")" &&
+	if git clean -fxd;then
+	    return 0
+	else
+	    return 1
+	fi
+}
+
+update() {
+    pull && compile
+}
+
+
+test -x "${RE2L_BINPATH}" || test -d "$(dirname "${RE2L_BINPATH}")" || exit 1
+test -d "${RE2L_DATAPATH}" || exit 1
+
+for i in "${@}";do
+    case "${i}" in
+	update)
+	   update || update && printf '%s\n' 'Updated';;
+	
+	pull)
+	    pull;;
+	
+	compile)
+	    compile;;
+
+	clean)
+	    clean;;
+
+	gitclean)
+	    gitclean;;
+
+	x)
+	    exit 0;;
+	
+	*)
+	    exit 1;;
+    esac
+done
+
+if test -x "${RE2L_BINPATH}";then
+    p_banner
+    run
+else
+    printf 'Red Eclipse 2 executable (%s) not found, compiling.\n' "$(realpath "${RE2L_BINPATH}")"
+    if compile;then
+	p_banner
+	run
+    else
+	if update;then
+	    p_banner
+	    run
+	else
+	    printf '%s\n' 'Update failed. Are you sure RE2L_BINPATH and RE2L_DATAPATH are pointing to the right places?'
+	fi
+    fi
+fi
